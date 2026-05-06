@@ -200,6 +200,36 @@ app.post("/onchain", async (req, res) => {
   res.json({ success: true, onChainData: data });
 });
 
+async function fetchReviews(domain) {
+  try {
+    const brandName = domain.split(".")[0];
+    const query = `${brandName} reviews complaints site:trustpilot.com OR site:g2.com OR site:reddit.com`;
+
+      console.log(`[ScaleSerp] Searching for: ${brandName}`);
+    const res = await fetch(
+     `https://api.scaleserp.com/search?q=${encodeURIComponent(query)}&num=10&api_key=${process.env.SERPAPI_KEY}`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+
+    if (!res.ok) throw new Error(`SerpAPI ${res.status}`);
+    const data = await res.json();
+
+    const snippets = (data.organic_results || [])
+      .map((r) => ({
+        source: r.displayed_link || r.link,
+        title: r.title || "",
+        snippet: r.snippet || "",
+      }))
+      .filter((r) => r.snippet.length > 40)
+      .slice(0, 8);
+
+    return { hasReviews: snippets.length > 0, snippets };
+  } catch (err) {
+    console.error(`[SerpAPI] Error:`, err.message);
+    return { hasReviews: false, snippets: [] };
+  }
+}
+
 // Main analysis endpoint
 app.post("/analyze", async (req, res) => {
   const { url } = req.body;
@@ -224,11 +254,17 @@ app.post("/analyze", async (req, res) => {
 
   let browser;
   try {
-    // Launch both Puppeteer AND Dune SIM in parallel
-    const [browserResult, onChainData] = await Promise.allSettled([
+    const [browserResult, onChainData, reviewData] = await Promise.allSettled([
       launchAndScreenshot(normalizedUrl),
       fetchOnChainData(domain),
+      fetchReviews(domain),
     ]);
+
+    const reviews =
+      reviewData.status === "fulfilled"
+        ? reviewData.value
+        : { hasReviews: false, snippets: [] };
+    console.log(`Reviews: ${reviews.snippets.length} snippets found`);
 
     const screenshotBase64 =
       browserResult.status === "fulfilled" ? browserResult.value : null;
@@ -241,7 +277,7 @@ app.post("/analyze", async (req, res) => {
       `Screenshot: ${screenshotBase64 ? "OK" : "FAILED"} | Dune SIM: ${chainData.hasOnChainData ? "found" : "none"}`,
     );
 
-    const prompt = buildPrompt(normalizedUrl, domain);
+    const prompt = buildPrompt(normalizedUrl, domain,reviews);
 
     const messageContent = screenshotBase64
       ? [
@@ -259,7 +295,7 @@ app.post("/analyze", async (req, res) => {
 
     const response = await client.messages.create({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 2000,
+      max_tokens: 4000,
       messages: [{ role: "user", content: messageContent }],
     });
 
@@ -338,55 +374,77 @@ async function launchAndScreenshot(normalizedUrl) {
   }
 }
 
-function buildPrompt(url, domain) {
-  return `You are Mirra, an expert competitive intelligence analyst. You are looking at a REAL LIVE SCREENSHOT of ${domain} (${url}).
+function buildPrompt(url, domain, reviews) {
+  const reviewBlock = reviews.hasReviews
+    ? `REAL CUSTOMER REVIEWS FOUND:\n${reviews.snippets.map((r, i) => 
+        `[${i+1}] Source: ${r.source}\n"${r.snippet}"`
+      ).join('\n\n')}`
+    : 'No public reviews found for this competitor.';
 
-Analyze EXACTLY what you see in this screenshot. Do not use prior knowledge — only analyze what is visible in the image.
+  return `You are Mirra, an expert competitive intelligence analyst.
 
-Look for:
-- Navigation: what links, structure, sticky header?
-- Hero section: what is the headline, subheadline, CTA?
-- Primary CTA: button text, color, placement?
-- Social proof: logos, numbers, testimonials visible?
-- Pricing: visible or not?
-- Trust signals: badges, certifications, guarantees?
-- Value proposition: how clear is it?
-- Mobile/UX: overall visual quality?
+You have two data sources:
+1. A real live screenshot of ${domain}'s website
+2. Real customer review snippets from Trustpilot, G2, and Reddit
 
-CRITICAL: Return ONLY a raw JSON object. Start with { and end with }. No markdown, no backticks, no explanation.
+SCREENSHOT ANALYSIS: Analyze exactly what is visible — headline, CTA, design, social proof, navigation.
+
+${reviewBlock}
+
+CRITICAL: Return ONLY a raw JSON object. Start with { and end with }. No markdown, no backticks.
 
 {
   "domain": "${domain}",
-  "overallScore": <0-100, based only on what you see>,
-  "limitedKnowledge": false,
-  "summary": "<2-3 sentences describing exactly what you see on this page — specific headlines, CTAs, design choices>",
+  "threatLevel": "High|Medium|Low",
+  "gapScore": <0-100, higher = more exploitable gaps>,
+  "marketPosition": "Growing|Plateau|Declining",
+  "executiveSummary": {
+    "what": "<what this company does in one sentence>",
+    "strengths": ["<strength with evidence>", "<strength with evidence>"],
+    "weaknesses": ["<weakness from reviews or screenshot>", "<weakness from reviews>"],
+    "verdict": "Serious threat|Beatable|Opportunity"
+  },
+  "customerAmmunition": [
+    {
+      "complaint": "<real complaint pattern from reviews>",
+      "quote": "<closest real quote from snippets, or paraphrase>",
+      "frequency": "High|Medium|Low",
+      "yourAngle": "<how you position against this specific pain>"
+    }
+  ],
+  "momentumSignals": {
+    "overall": "Accelerating|Stable|Slowing|Unknown",
+    "signals": [
+      {"emoji": "📈", "text": "<signal observed from screenshot or reviews>"},
+      {"emoji": "⚠️", "text": "<warning signal>"}
+    ],
+    "whatItMeans": "<one sentence on what their momentum means for you>"
+  },
+  "priorityActions": [
+    {
+      "action": "<specific thing to do>",
+      "why": "<linked to a specific weakness or complaint>",
+      "effort": "Low|Medium|High",
+      "impact": "Low|Medium|High"
+    }
+  ],
+  "beatThemBrief": {
+    "headline": "<your positioning headline that exploits their weakness>",
+    "offerAngle": "<what to lead with based on their unmet need>",
+    "cta": "<CTA based on their users frustration>",
+    "whereToFindCustomers": "<channel where their frustrated users hang out>",
+    "persuasionAngle": "<what to say based on what they complain about>"
+  },
   "components": [
-    {"name":"Navigation","detail":"<exactly what you see>","status":"strong|partial|missing|unknown","color":"#1D6AF8"},
-    {"name":"Hero Section","detail":"<exact headline and subheadline you can read>","status":"strong|partial|missing|unknown","color":"#6B3FD4"},
-    {"name":"Primary CTA","detail":"<exact button text and color>","status":"strong|partial|missing|unknown","color":"#D93030"},
-    {"name":"Social Proof","detail":"<exactly what logos or numbers you see>","status":"strong|partial|missing|unknown","color":"#C07A00"},
-    {"name":"Pricing Display","detail":"<visible or not — what you see>","status":"strong|partial|missing|unknown","color":"#0F9E52"},
-    {"name":"Trust Signals","detail":"<any badges or certifications visible>","status":"strong|partial|missing|unknown","color":"#0891B2"},
-    {"name":"Value Proposition","detail":"<how clear is the why-us message>","status":"strong|partial|missing|unknown","color":"#6B3FD4"},
-    {"name":"Mobile Experience","detail":"<visual quality and layout observations>","status":"strong|partial|missing|unknown","color":"#1D6AF8"}
+    {"name":"Navigation","detail":"<what you see>","status":"strong|partial|missing","color":"#1D6AF8"},
+    {"name":"Hero Section","detail":"<exact headline>","status":"strong|partial|missing","color":"#6B3FD4"},
+    {"name":"Primary CTA","detail":"<exact button text>","status":"strong|partial|missing","color":"#D93030"},
+    {"name":"Social Proof","detail":"<what you see>","status":"strong|partial|missing","color":"#C07A00"},
+    {"name":"Trust Signals","detail":"<what you see>","status":"strong|partial|missing","color":"#0891B2"}
   ],
-  "insights":[
-    {"type":"steal","title":"<4-6 word title>","text":"<specific thing visible in screenshot that is done well>","action":"Steal"},
-    {"type":"steal","title":"<4-6 word title>","text":"<another specific strength visible>","action":"Steal"},
-    {"type":"gap","title":"<4-6 word title>","text":"<specific weakness visible in screenshot>","action":"Exploit"},
-    {"type":"gap","title":"<4-6 word title>","text":"<another specific weakness>","action":"Exploit"},
-    {"type":"watch","title":"<4-6 word title>","text":"<interesting pattern worth noting>","action":"Note"}
-  ],
-  "scoreBreakdown":{
-    "Visual Design":<0-100>,
-    "CTA Clarity":<0-100>,
-    "Social Proof":<0-100>,
-    "Navigation":<0-100>,
-    "Trust Signals":<0-100>
-  }
+  "overallScore": <0-100>
 }`;
 }
-
 function extractJSON(text) {
   // Try direct parse
   try {
