@@ -1,10 +1,10 @@
-const BASE =   import.meta.env.VITE_API_URL;
+const BASE = "http://localhost:8080" ;
 
 export interface AnalysisResult {
   domain: string;
-  threatLevel: 'High' | 'Medium' | 'Low';
+  threatLevel: "High" | "Medium" | "Low";
   gapScore: number;
-  marketPosition: 'Growing' | 'Plateau' | 'Declining';
+  marketPosition: "Growing" | "Plateau" | "Declining";
   overallScore: number;
   executiveSummary: {
     what: string;
@@ -15,7 +15,7 @@ export interface AnalysisResult {
   customerAmmunition: {
     complaint: string;
     quote: string;
-    frequency: 'High' | 'Medium' | 'Low';
+    frequency: "High" | "Medium" | "Low";
     yourAngle: string;
   }[];
   momentumSignals: {
@@ -26,8 +26,8 @@ export interface AnalysisResult {
   priorityActions: {
     action: string;
     why: string;
-    effort: 'Low' | 'Medium' | 'High';
-    impact: 'Low' | 'Medium' | 'High';
+    effort: "Low" | "Medium" | "High";
+    impact: "Low" | "Medium" | "High";
   }[];
   beatThemBrief: {
     headline: string;
@@ -39,7 +39,7 @@ export interface AnalysisResult {
   components: {
     name: string;
     detail: string;
-    status: 'strong' | 'partial' | 'missing';
+    status: "strong" | "partial" | "missing";
     color: string;
   }[];
   onChainData: {
@@ -52,15 +52,43 @@ export interface AnalysisResult {
     holderCount?: string;
     volume24h?: string;
   };
+
+  trafficData?: {
+    hasTrafficData: boolean;
+    monthlyVisits?: string;
+    trend?: string;
+    changePercent?: string;
+    bounceRate?: string;
+    pagesPerVisit?: string;
+    avgVisitDuration?: string;
+    globalRank?: string;
+    topSources?: Record<string, string>;
+    message?: string;
+  };
+  newsData?: {
+    hasNews: boolean;
+    articles: {
+      title: string;
+      source: string;
+      snippet: string;
+      date: string;
+    }[];
+  };
+  trafficIntelligence?: {
+    summary: string;
+    isGrowing: boolean;
+    keyInsight: string;
+  };
+  recentMoves?: { headline: string; whatItMeans: string }[];
 }
 
 export async function analyze(url: string): Promise<AnalysisResult> {
   const res = await fetch(`${BASE}/analyze`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url }),
   });
   const data = await res.json();
-  if (!data.success) throw new Error(data.error || 'Analysis failed');
+  if (!data.success) throw new Error(data.error || "Analysis failed");
   return data.result;
 }

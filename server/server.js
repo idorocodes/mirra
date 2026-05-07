@@ -205,10 +205,10 @@ async function fetchReviews(domain) {
     const brandName = domain.split(".")[0];
     const query = `${brandName} reviews complaints site:trustpilot.com OR site:g2.com OR site:reddit.com`;
 
-      console.log(`[ScaleSerp] Searching for: ${brandName}`);
+    console.log(`[ScaleSerp] Searching for: ${brandName}`);
     const res = await fetch(
-     `https://api.scaleserp.com/search?q=${encodeURIComponent(query)}&num=10&api_key=${process.env.SERPAPI_KEY}`,
-      { signal: AbortSignal.timeout(8000) },
+      `https://api.scaleserp.com/search?q=${encodeURIComponent(query)}&num=10&api_key=${process.env.SERPAPI_KEY}`,
+      { signal: AbortSignal.timeout(15000) },
     );
 
     if (!res.ok) throw new Error(`SerpAPI ${res.status}`);
@@ -227,6 +227,100 @@ async function fetchReviews(domain) {
   } catch (err) {
     console.error(`[SerpAPI] Error:`, err.message);
     return { hasReviews: false, snippets: [] };
+  }
+}
+async function fetchTraffic(domain) {
+  try {
+    console.log(`[Traffic] Fetching for ${domain}`);
+    const res = await fetch(
+      `https://data.similarweb.com/api/v1/data?domain=${domain}`,
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+        signal: AbortSignal.timeout(8000),
+      },
+    );
+    if (!res.ok) throw new Error(`SimilarWeb ${res.status}`);
+    const data = await res.json();
+
+    const visits = data.EstimatedMonthlyVisits;
+    const sortedMonths = visits
+      ? Object.entries(visits).sort((a, b) => a[0].localeCompare(b[0]))
+      : [];
+    const lastTwo = sortedMonths.slice(-2);
+    const latest = lastTwo[1] ? lastTwo[1][1] : null;
+    const previous = lastTwo[0] ? lastTwo[0][1] : null;
+
+    let trend = "Unknown";
+    let changePercent = null;
+    if (latest && previous && previous > 0) {
+      const change = ((latest - previous) / previous) * 100;
+      changePercent = change.toFixed(1);
+      trend = change > 5 ? "Growing" : change < -5 ? "Declining" : "Stable";
+    }
+
+    return {
+      hasTrafficData: true,
+      monthlyVisits: latest ? formatNumber(latest) : "Unknown",
+      trend,
+      changePercent: changePercent
+        ? `${changePercent > 0 ? "+" : ""}${changePercent}%`
+        : "N/A",
+      bounceRate: data.Engagments?.BounceRate
+        ? `${(data.Engagments.BounceRate * 100).toFixed(1)}%`
+        : "N/A",
+      pagesPerVisit: data.Engagments?.PagePerVisit
+        ? parseFloat(data.Engagments.PagePerVisit).toFixed(1)
+        : "N/A",
+      avgVisitDuration: data.Engagments?.TimeOnSite
+        ? `${Math.floor(data.Engagments.TimeOnSite / 60)}m ${Math.round(data.Engagments.TimeOnSite % 60)}s`
+        : "N/A",
+      topSources: data.TrafficSources
+        ? {
+            direct: `${((data.TrafficSources.Direct || 0) * 100).toFixed(1)}%`,
+            search: `${((data.TrafficSources.Search || 0) * 100).toFixed(1)}%`,
+            social: `${((data.TrafficSources.Social || 0) * 100).toFixed(1)}%`,
+            referral: `${((data.TrafficSources.Referrals || 0) * 100).toFixed(1)}%`,
+          }
+        : null,
+      globalRank: data.GlobalRank?.Rank
+        ? formatNumber(data.GlobalRank.Rank)
+        : "N/A",
+    };
+  } catch (err) {
+    console.error(`[Traffic] Error:`, err.message);
+    return { hasTrafficData: false, message: "Traffic data unavailable." };
+  }
+}
+
+async function fetchNews(domain) {
+  try {
+    console.log(`[News] Fetching for ${domain}`);
+    const brandName = domain.split(".")[0];
+
+    const res = await fetch(
+      `https://api.scaleserp.com/search?api_key=${process.env.SERPAPI_KEY}&q=${encodeURIComponent(brandName)}&search_type=news&time_period=last_month&num=6`,
+      { signal: AbortSignal.timeout(15000) },
+    );
+    if (!res.ok) throw new Error(`ScaleSerp News ${res.status}`);
+    const data = await res.json();
+
+    const articles = (data.news_results || [])
+      .map((r) => ({
+        title: r.title || "",
+        source: r.source?.name || r.displayed_link || "",
+        snippet: r.snippet || "",
+        date: r.date || "",
+      }))
+      .filter((r) => r.title.length > 10)
+      .slice(0, 5);
+
+    return { hasNews: articles.length > 0, articles };
+  } catch (err) {
+    console.error(`[News] Error:`, err.message);
+    return { hasNews: false, articles: [] };
   }
 }
 
@@ -254,30 +348,38 @@ app.post("/analyze", async (req, res) => {
 
   let browser;
   try {
-    const [browserResult, onChainData, reviewData] = await Promise.allSettled([
-      launchAndScreenshot(normalizedUrl),
-      fetchOnChainData(domain),
-      fetchReviews(domain),
-    ]);
+    const [browserResult, onChainData, reviewData, trafficData, newsData] =
+      await Promise.allSettled([
+        launchAndScreenshot(normalizedUrl),
+        fetchOnChainData(domain),
+        fetchReviews(domain),
+        fetchTraffic(domain),
+        fetchNews(domain),
+      ]);
 
     const reviews =
       reviewData.status === "fulfilled"
         ? reviewData.value
         : { hasReviews: false, snippets: [] };
-    console.log(`Reviews: ${reviews.snippets.length} snippets found`);
+    const traffic =
+      trafficData.status === "fulfilled"
+        ? trafficData.value
+        : { hasTrafficData: false };
+    const news =
+      newsData.status === "fulfilled"
+        ? newsData.value
+        : { hasNews: false, articles: [] };
 
-    const screenshotBase64 =
-      browserResult.status === "fulfilled" ? browserResult.value : null;
-    const chainData =
-      onChainData.status === "fulfilled"
-        ? onChainData.value
-        : { hasOnChainData: false, message: "On-chain lookup failed." };
+        
+const screenshotBase64 = browserResult.status === 'fulfilled' ? browserResult.value : null;
+const chainData = onChainData.status === 'fulfilled' ? onChainData.value : { hasOnChainData: false, message: 'On-chain lookup failed.' };
 
-    console.log(
-      `Screenshot: ${screenshotBase64 ? "OK" : "FAILED"} | Dune SIM: ${chainData.hasOnChainData ? "found" : "none"}`,
-    );
 
-    const prompt = buildPrompt(normalizedUrl, domain,reviews);
+console.log(`Reviews: ${reviews.snippets.length} snippets | Traffic: ${traffic.hasTrafficData ? traffic.monthlyVisits + '/mo' : 'none'} | News: ${news.articles.length} articles`);
+
+   
+
+    const prompt = buildPrompt(normalizedUrl, domain, reviews, traffic, news);
 
     const messageContent = screenshotBase64
       ? [
@@ -312,10 +414,12 @@ app.post("/analyze", async (req, res) => {
         .json({ error: "Could not parse AI response. Try again." });
     }
 
-    // Attach Dune SIM on-chain data to result
     result.onChainData = chainData;
+    result.trafficData = traffic;
+    result.newsData = news;
 
     res.json({ success: true, result, usedScreenshot: !!screenshotBase64 });
+    
   } catch (err) {
     if (browser) {
       try {
@@ -351,10 +455,7 @@ async function launchAndScreenshot(normalizedUrl) {
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     );
     console.log(`[Puppeteer] Navigating...`);
-    await page.goto(normalizedUrl, {
-      waitUntil: "networkidle2",
-      timeout: 25000,
-    });
+    await page.goto(normalizedUrl, { waitUntil: 'domcontentloaded', timeout: 35000 });
     console.log(`[Puppeteer] Page loaded`);
     await new Promise((r) => setTimeout(r, 2000));
     const buf = await page.screenshot({
@@ -374,66 +475,96 @@ async function launchAndScreenshot(normalizedUrl) {
   }
 }
 
-function buildPrompt(url, domain, reviews) {
+function buildPrompt(url, domain, reviews, traffic, news) {
   const reviewBlock = reviews.hasReviews
-    ? `REAL CUSTOMER REVIEWS FOUND:\n${reviews.snippets.map((r, i) => 
-        `[${i+1}] Source: ${r.source}\n"${r.snippet}"`
-      ).join('\n\n')}`
-    : 'No public reviews found for this competitor.';
+    ? `REAL CUSTOMER REVIEWS:\n${reviews.snippets.map((r, i) => `[${i + 1}] Source: ${r.source}\n"${r.snippet}"`).join("\n\n")}`
+    : "No public reviews found.";
+
+  const trafficBlock = traffic.hasTrafficData
+    ? `TRAFFIC DATA (SimilarWeb):
+- Monthly visits: ${traffic.monthlyVisits}
+- Trend: ${traffic.trend} (${traffic.changePercent} vs last month)
+- Bounce rate: ${traffic.bounceRate}
+- Pages per visit: ${traffic.pagesPerVisit}
+- Avg visit duration: ${traffic.avgVisitDuration}
+- Global rank: #${traffic.globalRank}
+- Top sources: Direct ${traffic.topSources?.direct}, Search ${traffic.topSources?.search}, Social ${traffic.topSources?.social}, Referral ${traffic.topSources?.referral}`
+    : "Traffic data unavailable.";
+
+  const newsBlock = news.hasNews
+    ? `RECENT NEWS (last 30 days):\n${news.articles.map((a, i) => `[${i + 1}] ${a.date} — ${a.source}: "${a.title}" — ${a.snippet}`).join("\n")}`
+    : "No recent news found.";
 
   return `You are Mirra, an expert competitive intelligence analyst.
 
-You have two data sources:
+You have four data sources:
 1. A real live screenshot of ${domain}'s website
-2. Real customer review snippets from Trustpilot, G2, and Reddit
-
-SCREENSHOT ANALYSIS: Analyze exactly what is visible — headline, CTA, design, social proof, navigation.
+2. Real customer review snippets from Trustpilot, G2, and Reddit  
+3. Real traffic data from SimilarWeb
+4. Recent news articles from the last 30 days
 
 ${reviewBlock}
+
+${trafficBlock}
+
+${newsBlock}
+
+Use ALL available data to build your analysis. Every claim must be grounded in the data above.
 
 CRITICAL: Return ONLY a raw JSON object. Start with { and end with }. No markdown, no backticks.
 
 {
   "domain": "${domain}",
   "threatLevel": "High|Medium|Low",
-  "gapScore": <0-100, higher = more exploitable gaps>,
+  "gapScore": <0-100>,
   "marketPosition": "Growing|Plateau|Declining",
   "executiveSummary": {
-    "what": "<what this company does in one sentence>",
-    "strengths": ["<strength with evidence>", "<strength with evidence>"],
-    "weaknesses": ["<weakness from reviews or screenshot>", "<weakness from reviews>"],
+    "what": "<one sentence>",
+    "strengths": ["<with evidence>", "<with evidence>"],
+    "weaknesses": ["<from reviews or data>", "<from reviews or data>"],
     "verdict": "Serious threat|Beatable|Opportunity"
   },
   "customerAmmunition": [
     {
-      "complaint": "<real complaint pattern from reviews>",
-      "quote": "<closest real quote from snippets, or paraphrase>",
+      "complaint": "<real complaint pattern>",
+      "quote": "<real quote from snippets>",
       "frequency": "High|Medium|Low",
-      "yourAngle": "<how you position against this specific pain>"
+      "yourAngle": "<how to position against this>"
+    }
+  ],
+  "trafficIntelligence": {
+    "summary": "<one sentence on what the traffic data means>",
+    "isGrowing": true,
+    "keyInsight": "<most important thing the traffic data reveals about their business health>"
+  },
+  "recentMoves": [
+    {
+      "headline": "<news headline or signal>",
+      "whatItMeans": "<implication for you as a competitor>"
     }
   ],
   "momentumSignals": {
     "overall": "Accelerating|Stable|Slowing|Unknown",
     "signals": [
-      {"emoji": "📈", "text": "<signal observed from screenshot or reviews>"},
+      {"emoji": "📈", "text": "<signal from screenshot, reviews, traffic, or news>"},
       {"emoji": "⚠️", "text": "<warning signal>"}
     ],
-    "whatItMeans": "<one sentence on what their momentum means for you>"
+    "whatItMeans": "<one sentence implication>"
   },
   "priorityActions": [
     {
-      "action": "<specific thing to do>",
-      "why": "<linked to a specific weakness or complaint>",
+      "action": "<specific action>",
+      "why": "<linked to weakness or complaint>",
       "effort": "Low|Medium|High",
       "impact": "Low|Medium|High"
     }
   ],
   "beatThemBrief": {
-    "headline": "<your positioning headline that exploits their weakness>",
-    "offerAngle": "<what to lead with based on their unmet need>",
-    "cta": "<CTA based on their users frustration>",
-    "whereToFindCustomers": "<channel where their frustrated users hang out>",
-    "persuasionAngle": "<what to say based on what they complain about>"
+    "headline": "<positioning headline exploiting their weakness>",
+    "offerAngle": "<based on unmet need>",
+    "cta": "<based on user frustration>",
+    "whereToFindCustomers": "<specific channel>",
+    "persuasionAngle": "<based on complaints>"
   },
   "components": [
     {"name":"Navigation","detail":"<what you see>","status":"strong|partial|missing","color":"#1D6AF8"},
@@ -445,6 +576,7 @@ CRITICAL: Return ONLY a raw JSON object. Start with { and end with }. No markdow
   "overallScore": <0-100>
 }`;
 }
+
 function extractJSON(text) {
   // Try direct parse
   try {
