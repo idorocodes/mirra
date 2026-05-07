@@ -1,43 +1,48 @@
-import { useState } from 'react';
-import Navbar from './components/NavBar';
-import AnalyzeInput from './components/AnalyzeInput';
-import LoadingState from './components/LoadingState';
-import Report from './pages/Report';
-import { analyze, type AnalysisResult } from './api/analyze';
+import { useState } from "react";
+import Navbar from "./components/NavBar";
+import AnalyzeInput from "./components/AnalyzeInput";
+import LoadingState from "./components/LoadingState";
+import Report from "./pages/Report";
+import { analyze, type AnalysisResult } from "./api/analyze";
 
-type State = 'landing' | 'loading' | 'report';
+type State = "landing" | "loading" | "report";
 
-const exampleCompetitors = ['notion.so', 'linear.app', 'paystack.com', 'vercel.com'];
+const exampleCompetitors = [
+  "notion.so",
+  "linear.app",
+  "paystack.com",
+  "vercel.com",
+];
 
 export default function App() {
-  const [state, setState] = useState<State>('landing');
+  const [state, setState] = useState<State>("landing");
   const [result, setResult] = useState<AnalysisResult | null>(null);
-  const [domain, setDomain] = useState('');
-  const [error, setError] = useState('');
+  const [domain, setDomain] = useState("");
+  const [error, setError] = useState("");
 
   const handleAnalyze = async (url: string) => {
-    const d = url.replace(/^https?:\/\//, '').split('/')[0];
+    const d = url.replace(/^https?:\/\//, "").split("/")[0];
     setDomain(d);
-    setError('');
-    setState('loading');
+    setError("");
+    setState("loading");
     try {
       const data = await analyze(url);
       setResult(data);
-      setState('report');
+      setState("report");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Analysis failed');
-      setState('landing');
+      setError(err instanceof Error ? err.message : "Analysis failed");
+      setState("landing");
     }
   };
 
   const reset = () => {
-    setState('landing');
+    setState("landing");
     setResult(null);
-    setDomain('');
-    setError('');
+    setDomain("");
+    setError("");
   };
 
-  if (state === 'loading') {
+  if (state === "loading") {
     return (
       <>
         <Navbar onLogoClick={reset} />
@@ -46,7 +51,7 @@ export default function App() {
     );
   }
 
-  if (state === 'report' && result) {
+  if (state === "report" && result) {
     return (
       <>
         <Navbar onLogoClick={reset} />
@@ -63,34 +68,39 @@ export default function App() {
       <main className="min-h-screen flex flex-col items-center justify-center px-6 pt-14 relative overflow-hidden">
         {/* Background decoration */}
         <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-gradient-to-b from-violet-50 to-transparent opacity-70" />
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-[500px] bg-gradient-to-b from-violet-50 to-transparent opacity-70" />
           <div
             className="absolute inset-0 opacity-[0.03]"
             style={{
               backgroundImage: `linear-gradient(#000 1px, transparent 1px), linear-gradient(90deg, #000 1px, transparent 1px)`,
-              backgroundSize: '40px 40px',
+              backgroundSize: "40px 40px",
+              backgroundRepeat: "repeat",
+              width: "100%",
             }}
           />
         </div>
 
         <div className="relative z-10 text-center max-w-3xl mx-auto">
-         
-
           {/* Headline */}
           <h1 className="text-5xl md:text-7xl font-semibold text-gray-900 tracking-tight leading-[1.04] mb-6">
-            Your competitors<br />
+            Your competitors
+            <br />
             are hiding something.
             <br />
             <span className="text-gray-300 italic">Mirra sees it.</span>
           </h1>
 
           <p className="text-lg text-gray-400 font-light leading-relaxed mb-10 max-w-xl mx-auto">
-            Paste any competitor URL. Get real customer complaints, momentum signals, and an exact playbook to beat them.
+            Paste any competitor URL. Get real customer complaints, momentum
+            signals, and an exact playbook to beat them.
           </p>
 
           {/* Input */}
           <div className="flex justify-center mb-6">
-            <AnalyzeInput onAnalyze={handleAnalyze} loading={state === 'loading'} />
+            <AnalyzeInput
+              onAnalyze={handleAnalyze}
+              loading={state === "loading"}
+            />
           </div>
 
           {error && (
@@ -102,7 +112,7 @@ export default function App() {
           {/* Example chips */}
           <div className="flex items-center justify-center gap-2 flex-wrap">
             <span className="text-xs text-gray-300">Try:</span>
-            {exampleCompetitors.map(ex => (
+            {exampleCompetitors.map((ex) => (
               <button
                 key={ex}
                 onClick={() => handleAnalyze(ex)}
