@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import type { AnalysisResult } from '../api/analyze';
-import ReportHeader from '../components/report/ReportHeader';
-import BeatThemBrief from '../components/report/BeatThemBrief';
+import type { AnalysisResult } from '../api/analyze.ts';
+import ReportHeader from '../components/report/ReportHeader.tsx';
+import BeatThemBrief from '../components/report/BeatThemBrief.tsx';
 import CustomerAmmunition from '../components/report/CustomerAmmunition';
 import PriorityActions from '../components/report/PriorityActions';
 import ExecutiveSummary from '../components/report/ExecutiveSummary';
