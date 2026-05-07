@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import Navbar from './components/Navbar';
+import Navbar from './components/NavBar';
 import AnalyzeInput from './components/AnalyzeInput';
 import LoadingState from './components/LoadingState';
 import Report from './pages/Report';
