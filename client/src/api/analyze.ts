@@ -1,4 +1,4 @@
-const BASE = "http://localhost:8080" ;
+const BASE = import.meta.env.VITE_API_URL;
 
 export interface AnalysisResult {
   domain: string;
@@ -18,7 +18,7 @@ export interface AnalysisResult {
     frequency: "High" | "Medium" | "Low";
     yourAngle: string;
   }[];
-  momentumSignals: {
+  momentumSignals: { 
     overall: string;
     signals: { emoji: string; text: string }[];
     whatItMeans: string;
